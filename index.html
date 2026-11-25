@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-Da2WLJBNXMUG//quRwm4UQbF0Nuw+UjJM+w/IduM4K0=' 'wasm-unsafe-eval'; style-src 'unsafe-inline'; img-src blob: data:; connect-src 'self' https://playerdb.co https://crafthead.net https://textures.minecraft.net; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<link rel="icon" href="data:,">
+<title>Block Head Skin Maker</title>
+<meta name="description" content="Turn a Minecraft Java skin into an IMVU block head.">
+<style>
+  :root {
+    /* Stone greys with a grass-green accent. */
+    --bg: #f3f5f2;
+    --panel: #ffffff;
+    --line: #c9d1c6;
+    --text: #1f2a22;
+    --muted: #5d6b60;
+    --accent: #3d8b4f;
+    --accent-text: #ffffff;
+    --error: #b23a2e;
+    --ok: #2f7a3e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c211e;
+      --panel: #252c27;
+      --line: #3a443c;
+      --text: #e6ece5;
+      --muted: #9aa89c;
+      --accent: #6cc47e;
+      --accent-text: #102014;
+      --error: #f08a7e;
+      --ok: #8fd69c;
+    }
+  }
+  /* A small widget, made to sit in an iframe in a product description:
+     about 380×230 (a little taller with Options open). */
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; background: transparent; }
+  body {
+    color: var(--text);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .card {
+    max-width: 420px; padding: 12px;
+    background: var(--bg); border: 1px solid var(--line);
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .line { display: flex; align-items: center; gap: 6px; }
+  input[type=text] {
+    flex: 1; min-width: 0; font: inherit; padding: 7px 9px;
+    background: var(--panel); color: var(--text); border: 1px solid var(--line);
+  }
+  input[type=text]:focus-visible, button:focus-visible, .upload:focus-within, summary:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+  button, .upload {
+    font: inherit; font-weight: 600; padding: 7px 12px; cursor: pointer; white-space: nowrap;
+    background: transparent; color: var(--text); border: 1px solid var(--line);
+  }
+  button:disabled { opacity: 0.45; cursor: default; }
+  .or { color: var(--muted); }
+  .upload.over { border-color: var(--accent); }
+  .skin { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+  .skin canvas { width: 32px; height: auto; image-rendering: pixelated; flex: none; }
+  .skin span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .skin .what { color: var(--muted); }
+  details { margin-left: auto; flex: none; }
+  summary { cursor: pointer; color: var(--muted); }
+  .options { display: flex; flex-direction: column; gap: 6px; padding-top: 6px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+  .row .label { color: var(--muted); min-width: 70px; }
+  .choice { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); }
+  .choice label { padding: 3px 8px; cursor: pointer; }
+  .choice input { position: absolute; opacity: 0; pointer-events: none; }
+  .choice input:checked + span { color: var(--accent); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+  .choice input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 1px; }
+  #make {
+    width: 100%; padding: 9px 12px; background: var(--accent); color: var(--accent-text); border-color: var(--accent);
+    box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.22);
+  }
+  .status { min-height: 20px; margin: 0; font-size: 13px; color: var(--muted); }
+  .status.error { color: var(--error); }
+  .status.ok { color: var(--ok); }
+</style>
+</head>
+<body>
+<main class="card">
+  <div class="line">
+    <input type="text" id="username" placeholder="Java username" aria-label="Java username" maxlength="16"
+           autocomplete="off" autocapitalize="off" spellcheck="false">
+    <button id="lookup">Get skin</button>
+  </div>
+
+  <div class="line">
+    <span class="or">or</span>
+    <label class="upload" id="drop" title="Or drop a skin PNG here">
+      <input type="file" id="file" accept="image/png" hidden>Upload skin PNG
+    </label>
+  </div>
+
+  <div class="line">
+    <div class="skin" id="skin" hidden>
+      <canvas id="preview" width="64" height="64"></canvas>
+      <span><span id="skin-who"></span> <span class="what" id="skin-what"></span></span>
+    </div>
+    <details>
+      <summary>Options</summary>
+      <div class="options">
+        <div class="row">
+          <span class="label">Outer layer</span>
+          <span class="choice" role="radiogroup" aria-label="Outer layer">
+            <label><input type="radio" name="layer" value="0" checked><span>3D</span></label>
+            <label><input type="radio" name="layer" value="2"><span>Flat</span></label>
+            <label><input type="radio" name="layer" value="1"><span>Lined up</span></label>
+          </span>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <button id="make" disabled>Download .chkn</button>
+  <p class="status" id="status" role="status" aria-live="polite">Loading…</p>
+</main>
+
+<script>
+(async () => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const status = $("status");
+  const make = $("make");
+  const lookup = $("lookup");
+  const say = (text, kind = "") => { status.textContent = text; status.className = "status " + kind; };
+
+  // Limits: Minecraft skins are a few KB; the converter checks the image too.
+  const MAX_SKIN_BYTES = 2 * 1024 * 1024;
+  const MAX_JSON_BYTES = 256 * 1024;
+  const TIMEOUT_MS = 10000;
+  const USERNAME = /^[A-Za-z0-9_]{3,16}$/;
+  // Mojang's texture server; skins are fetched only from here, by their ID.
+  const TEXTURE_ID = /^[0-9a-f]{32,128}$/;
+
+  let wasm;
+  try {
+    // The single-file build carries the converter in the page; the hosted
+    // build loads it from the file beside the page.
+    const embedded = $("wasm-base64");
+    const code = embedded
+      ? Uint8Array.from(atob(embedded.textContent.trim()), (c) => c.charCodeAt(0))
+      : await (await fetch("blocky.wasm")).arrayBuffer();
+    wasm = (await WebAssembly.instantiate(code, {})).instance.exports;
+  } catch {
+    say("Couldn't start the converter. Try reloading the page.", "error");
+    return;
+  }
+
+  let skin = null; // { label, fileName, bytes }
+  let busy = false;
+
+  // Fetch with a time limit and a size limit, read as bytes.
+  const fetchLimited = async (url, maxBytes) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+      const response = await fetch(url, {
+        signal: controller.signal, credentials: "omit", referrerPolicy: "no-referrer", cache: "no-store",
+      });
+      if (!response.ok) throw new Error("status " + response.status);
+      const declared = Number(response.headers.get("content-length") || 0);
+      if (declared > maxBytes) throw new Error("too big");
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (bytes.length > maxBytes) throw new Error("too big");
+      return bytes;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  // Slim arms unless the visitor picks classic in Options (the label
+  // follows the choice). The head's page has no Arms choice.
+  const armsPicked = () => document.querySelector("input[name=arms]:checked");
+  const armsLabel = () =>
+    !armsPicked() ? "" : armsPicked().value === "2" ? "· classic arms" : "· slim arms";
+  const showArms = () => { if (skin) $("skin-what").textContent = armsLabel(); };
+  document.querySelectorAll("input[name=arms]").forEach((r) => r.addEventListener("change", showArms));
+
+  // Shows a skin; the converter checks it properly when the .chkn is made.
+  const showSkin = (bytes) => new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const w = img.naturalWidth, h = img.naturalHeight;
+      if (w < 64 || w > 1024 || w % 64 !== 0 || (h !== w && h * 2 !== w)) {
+        reject(new Error("That's " + w + "×" + h + "; skins are 64×64 or 64×32."));
+        return;
+      }
+      const canvas = $("preview");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0);
+      resolve({ w, h });
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("That isn't a PNG image.")); };
+    img.src = url;
+  });
+
+  const useSkin = async (bytes, label, fileName) => {
+    await showSkin(bytes);
+    skin = { label, fileName, bytes };
+    $("skin-who").textContent = label;
+    showArms();
+    $("skin").hidden = false;
+    make.disabled = false;
+  };
+
+  // A new lookup or upload drops the old skin first, so a failed one can't
+  // leave the previous skin ready to download.
+  const clearSkin = () => {
+    skin = null;
+    $("skin").hidden = true;
+    make.disabled = true;
+  };
+
+  // Only letters, digits, - and _ in the downloaded file's name.
+  const safeName = (text) => (text.replace(/\.png$/i, "").replace(/[^A-Za-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 32)) || "skin";
+
+  // A player's name and Mojang "textures" property (base64), from playerdb.co,
+  // or crafthead.net if playerdb fails (both relay Mojang's profile; neither
+  // can always tell "no such player" from "lookup failed"). null if neither
+  // has the player.
+  const readJson = async (url) => JSON.parse(new TextDecoder().decode(await fetchLimited(url, MAX_JSON_BYTES)));
+  const texturesOf = (properties) => {
+    const p = (Array.isArray(properties) ? properties : []).find((x) => x && x.name === "textures");
+    return p && typeof p.value === "string" ? p.value : null;
+  };
+  const findPlayer = async (name) => {
+    const encoded = encodeURIComponent(name);
+    try {
+      const r = await readJson("https://playerdb.co/api/player/minecraft/" + encoded);
+      const p = r && r.success && r.data && r.data.player;
+      const textures = p && texturesOf(p.properties);
+      if (textures) return { name: p.username, textures };
+    } catch {}
+    try {
+      const p = await readJson("https://crafthead.net/profile/" + encoded);
+      const textures = p && texturesOf(p.properties);
+      if (textures) return { name: p.name, textures };
+    } catch {}
+    return null;
+  };
+
+  const fromUsername = async () => {
+    if (busy) return;
+    const name = $("username").value.trim();
+    if (!USERNAME.test(name)) {
+      say("Java usernames are 3–16 letters, numbers or _.", "error");
+      return;
+    }
+    busy = true;
+    lookup.disabled = true;
+    clearSkin();
+    say("Looking up " + name + "…");
+    try {
+      const player = await findPlayer(name);
+      if (!player) throw new Error("Couldn't find " + name + ". Check the spelling, or upload the skin.");
+      let skinInfo = null;
+      try { skinInfo = JSON.parse(atob(player.textures)).textures.SKIN; } catch {}
+      if (!skinInfo || typeof skinInfo.url !== "string") {
+        throw new Error(name + " uses a default skin.");
+      }
+      const id = skinInfo.url.split("/").pop();
+      if (!TEXTURE_ID.test(id)) throw new Error("That skin's address looks wrong, so it wasn't downloaded.");
+      say("Downloading " + name + "'s skin…");
+      let bytes;
+      try {
+        bytes = await fetchLimited("https://textures.minecraft.net/texture/" + id, MAX_SKIN_BYTES);
+      } catch {
+        throw new Error("Couldn't download the skin. Try again in a moment.");
+      }
+      const shownName = typeof player.name === "string" && USERNAME.test(player.name) ? player.name : name;
+      await useSkin(bytes, shownName, shownName);
+      say("Got " + shownName + "'s skin.", "ok");
+    } catch (e) {
+      say(e.message, "error");
+    } finally {
+      busy = false;
+      lookup.disabled = false;
+    }
+  };
+
+  const fromFile = async (file) => {
+    if (!file || busy) return;
+    clearSkin();
+    if (file.size > MAX_SKIN_BYTES) {
+      say("That file is too big for a skin.", "error");
+      return;
+    }
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      await useSkin(bytes, file.name, file.name);
+      say("Skin ready.", "ok");
+    } catch (e) {
+      say(e.message, "error");
+    }
+  };
+
+  // The download's name (tools/build-web.ps1 -Bendy makes it the bendy one).
+  const FILE_SUFFIX = "_head.chkn";
+
+  const convert = () => {
+    const arms = armsPicked() ? Number(armsPicked().value) : 0;
+    const layer = Number(document.querySelector("input[name=layer]:checked").value);
+    const ptr = wasm.alloc(skin.bytes.length);
+    new Uint8Array(wasm.memory.buffer, ptr, skin.bytes.length).set(skin.bytes);
+    const code = wasm.convert(ptr, skin.bytes.length, arms, layer);
+    const out = new Uint8Array(wasm.memory.buffer, wasm.output_ptr(), wasm.output_len()).slice();
+    if (code !== 0) throw new Error(new TextDecoder().decode(out));
+    return out;
+  };
+
+  make.addEventListener("click", () => {
+    if (!skin || busy) return;
+    busy = true;
+    make.disabled = true;
+    say("Making your skin…");
+    setTimeout(() => {
+      try {
+        const chkn = convert();
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(new Blob([chkn], { type: "application/zip" }));
+        a.download = safeName(skin.fileName) + FILE_SUFFIX;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+        say("Saved " + a.download + ".", "ok");
+      } catch (e) {
+        say("Couldn't make this skin: " + e.message, "error");
+      }
+      busy = false;
+      make.disabled = false;
+    }, 20);
+  });
+
+  lookup.addEventListener("click", fromUsername);
+  $("username").addEventListener("keydown", (e) => { if (e.key === "Enter") fromUsername(); });
+  $("file").addEventListener("change", (e) => { fromFile(e.target.files[0]); e.target.value = ""; });
+  const drop = $("drop");
+  drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", (e) => {
+    e.preventDefault();
+    drop.classList.remove("over");
+    fromFile(e.dataTransfer.files[0]);
+  });
+
+  say("Your skin is made here in your browser.");
+})();
+</script>
+</body>
+</html>
